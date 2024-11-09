@@ -68,21 +68,21 @@ pub const VM = struct {
                 std.debug.print("VM.PC too high, reseting\n", .{});
                 self.pc = INITIAL_ADDRESS;
             }
-            const instruction: u16 = (@as(u16, self.ram[self.pc]) << 8) | @as(u16, self.ram[self.pc + 1]);
+            const operation: u16 = (@as(u16, self.ram[self.pc]) << 8) | @as(u16, self.ram[self.pc + 1]);
             self.pc += 2;
-            std.debug.print("0x{x:0>4}\n", .{instruction});
+            std.debug.print("0x{x:0>4}\n", .{operation});
 
-            const op = instruction & 0xF000 >> 12;
-            const subop = 0x000F & instruction;
+            const instruction = operation & 0xF000 >> 12;
+            const subinst = 0x000F & operation;
 
-            const byte: u8 = @truncate(instruction & 0x00FF);
-            const addr = instruction & 0x0FFF;
-            const x = (0x0F00 & instruction) >> 8;
-            const y = (0x00F0 & instruction) >> 4;
+            const data_byte: u8 = @truncate(operation & 0x00FF);
+            const addr = operation & 0x0FFF;
+            const x = (0x0F00 & operation) >> 8;
+            const y = (0x00F0 & operation) >> 4;
 
-            switch (op) {
+            switch (instruction) {
                 0x0 => {
-                    switch (byte) { // Switching on const byte instead of const instruction should probably make the asm switch table smaller.
+                    switch (data_byte) { // Switching on const byte instead of const instruction should probably make the asm switch table smaller.
                         // CLS
                         0xE0 => self.display.clear(),
                         // RET
@@ -98,13 +98,13 @@ pub const VM = struct {
                     self.stack_pointer += 1;
                     self.pc = addr;
                 },
-                0x3 => self.skip_if(self.v[x] == byte),
-                0x4 => self.skip_if(self.v[x] != byte),
+                0x3 => self.skip_if(self.v[x] == data_byte),
+                0x4 => self.skip_if(self.v[x] != data_byte),
                 0x5 => self.skip_if(self.v[x] == self.v[y]),
-                0x6 => self.v[x] = byte,
-                0x7 => self.v[x] +%= byte,
+                0x6 => self.v[x] = data_byte,
+                0x7 => self.v[x] +%= data_byte,
                 0x8 => {
-                    switch (subop) {
+                    switch (subinst) {
                         0x0 => self.v[x] = self.v[y],
                         0x1 => self.v[x] |= self.v[y],
                         0x2 => self.v[x] &= self.v[y],
@@ -137,11 +137,11 @@ pub const VM = struct {
                 0xB => self.pc = addr + self.v[0],
                 0xC => {
                     var gen = std.rand.DefaultPrng.init(0);
-                    self.v[x] = gen.random().int(u8) & byte;
+                    self.v[x] = gen.random().int(u8) & data_byte;
                 },
                 0xD => {
-                    if (subop != 0) { // chip8 draw
-                        for (0..subop) |y_pos| {
+                    if (subinst != 0) { // chip8 draw
+                        for (0..subinst) |y_pos| {
                             const line = self.ram[self.index + y_pos];
                             for (0..8) |x_pos| {
                                 const x_shift: u3 = @truncate(x_pos);
@@ -158,14 +158,14 @@ pub const VM = struct {
                     self.display.sdl.render();
                 },
                 0xE => {
-                    switch (byte) {
+                    switch (data_byte) {
                         0x9E => self.skip_if(self.key[x]),
                         0xA1 => self.skip_if(!self.key[x]),
                         else => {},
                     }
                 },
                 0xF => {
-                    switch (byte) {
+                    switch (data_byte) {
                         0x07 => self.v[x] = self.delay,
                         0x0A => self.v[x] = self.get_keypress(),
                         0x15 => self.delay = x,
@@ -173,7 +173,21 @@ pub const VM = struct {
                         0x1E => self.index +%= self.v[x],
                         0x29 => self.index = self.ram[x + FONT_POSITION],
                         // 0x30 => // superchip font version of 0x29,
-                        0x33 => {},
+                        0x33 => {
+                            self.ram[self.index] = self.v[x] / 100;
+                            self.ram[self.index + 1] = (self.v[x] / 10) % 10;
+                            self.ram[self.index + 2] = self.v[x] % 10;
+                        },
+                        0x55 => {
+                            for (0..x) |i| {
+                                self.ram[self.index + i] = self.v[i];
+                            }
+                        },
+                        0x65 => {
+                            for (1..x + 1) |i| {
+                                self.v[i] = self.ram[self.index + i];
+                            }
+                        },
                         else => {},
                     }
                 },
