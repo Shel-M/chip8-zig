@@ -12,7 +12,7 @@ const INITIAL_ADDRESS = 0x200;
 pub const VM = struct {
     display: *Display,
     ram: [4096]u8 = .{0} ** 4096,
-    key: [0xF]bool = .{false} * 0xF,
+    key: [0xF]bool = .{false} ** 0xF,
 
     pc: u16 = INITIAL_ADDRESS,
     stack_pointer: u8 = 0,
@@ -62,7 +62,7 @@ pub const VM = struct {
         }
     }
 
-    pub fn next(self: *VM, speed: usize, callback: *const fn (sdl: *SDL) void) void {
+    pub fn next(self: *VM, speed: usize, callback: *const fn (chip8: *VM) void) void {
         for (0..speed) |_| {
             if (self.pc >= 4096) {
                 std.debug.print("VM.PC too high, reseting\n", .{});
@@ -77,8 +77,8 @@ pub const VM = struct {
 
             const data_byte: u8 = @truncate(operation & 0x00FF);
             const addr = operation & 0x0FFF;
-            const x = (0x0F00 & operation) >> 8;
-            const y = (0x00F0 & operation) >> 4;
+            const x: u8 = @truncate((0x0F00 & operation) >> 8);
+            const y: u8 = @truncate((0x00F0 & operation) >> 4);
 
             switch (instruction) {
                 0x0 => {
@@ -195,7 +195,7 @@ pub const VM = struct {
             }
 
             if (self.delay == 0) { // VM ready for callback
-                callback(self.display.sdl);
+                callback(self);
             }
         }
     }
@@ -223,8 +223,14 @@ pub const VM = struct {
     }
 
     fn get_keypress(self: *VM) u4 {
+        const throttle = 17; // millisec loop throttle - limits loop to 60 times per second
+
         var event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&event) != 0) {
+        while (true) {
+            if (c.SDL_PollEvent(&event) == 0) {
+                c.SDL_Delay(throttle);
+                continue;
+            }
             switch (event.type) {
                 c.SDL_QUIT => {
                     self.display.sdl.quit = true;
@@ -232,46 +238,54 @@ pub const VM = struct {
                 c.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == c.SDLK_ESCAPE) {
                         self.display.sdl.quit = true;
-                        break;
+                        return 0; // doesn't matter, the program should end here.
                     }
                     // This is a simplified way of taking key input.
                     // A better version should probably take key info from a config file and define the presses to look for at runtime.
+                    var key: u4 = 0x0;
                     switch (event.key.keysym.sym) {
-                        c.SDLK_1 => return self.press(0x1),
-                        c.SDLK_2 => return self.press(0x2),
-                        c.SDLK_3 => return self.press(0x3),
-                        c.SDLK_4 => return self.press(0xC),
+                        c.SDLK_1 => key = 0x1,
+                        c.SDLK_2 => key = 0x2,
+                        c.SDLK_3 => key = 0x3,
+                        c.SDLK_4 => key = 0xC,
 
-                        c.SDLK_q => return self.press(0x4),
-                        c.SDLK_w => return self.press(0x5),
-                        c.SDLK_f => return self.press(0x6),
-                        c.SDLK_p => return self.press(0xD),
+                        c.SDLK_q => key = 0x4,
+                        c.SDLK_w => key = 0x5,
+                        c.SDLK_f => key = 0x6,
+                        c.SDLK_p => key = 0xD,
 
-                        c.SDLK_a => return self.press(0x7),
-                        c.SDLK_r => return self.press(0x8),
-                        c.SDLK_s => return self.press(0x9),
-                        c.SDLK_t => return self.press(0xE),
+                        c.SDLK_a => key = 0x7,
+                        c.SDLK_r => key = 0x8,
+                        c.SDLK_s => key = 0x9,
+                        c.SDLK_t => key = 0xE,
 
-                        c.SDLK_z => return self.press(0xA),
-                        c.SDLK_x => return self.press(0x0),
-                        c.SDLK_c => return self.press(0xB),
-                        c.SDLK_d => return self.press(0xF),
-                        else => {},
+                        c.SDLK_z => key = 0xA,
+                        c.SDLK_x => key = 0x0,
+                        c.SDLK_c => key = 0xB,
+                        c.SDLK_d => key = 0xF,
+                        else => {
+                            c.SDL_Delay(throttle);
+                            continue;
+                        },
                     }
+                    self.press(key);
+                    return key;
                 },
-                else => {},
+                else => {
+                    c.SDL_Delay(throttle);
+                    continue;
+                },
             }
-
             // Throttle checks to 60 times per second
             c.SDL_Delay(17);
         }
     }
 
-    fn press(self: *VM, key: u4) void {
+    pub fn press(self: *VM, key: u4) void {
         self.key[key] = true;
     }
 
-    fn release(self: *VM, key: u4) void {
+    pub fn release(self: *VM, key: u4) void {
         self.key[key] = false;
     }
 };

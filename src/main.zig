@@ -37,8 +37,6 @@ pub fn main() !void {
     }
 }
 
-fn nop() void {}
-
 fn sdl_callback(chip8: *VM) void {
     var event: c.SDL_Event = undefined;
     while (c.SDL_PollEvent(&event) != 0) {
